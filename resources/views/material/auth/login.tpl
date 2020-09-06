@@ -19,19 +19,19 @@
                 <div class="auth-row">
                     <div class="form-group-label auth-row row-login">
                         <label class="floating-label" for="email">邮箱</label>
-                        <input class="form-control maxwidth-auth" id="email" type="text" name="Email">
+                        <input class="form-control maxwidth-auth" id="email" type="email" name="Email" inputmode="email" autocomplete="username">
                     </div>
                 </div>
                 <div class="auth-row">
                     <div class="form-group-label auth-row row-login">
                         <label class="floating-label" for="passwd">密码</label>
-                        <input class="form-control maxwidth-auth" id="passwd" type="password" name="Password">
+                        <input class="form-control maxwidth-auth" id="passwd" type="password" name="Password" autocomplete="current-password">
                     </div>
                 </div>
                 <div class="auth-row">
                     <div class="form-group-label auth-row row-login">
                         <label class="floating-label" for="code">两步验证码（未设置请忽略）</label>
-                        <input class="form-control maxwidth-auth" id="code" type="text" name="Code">
+                        <input class="form-control maxwidth-auth" id="code" type="number" name="Code" inputmode="numeric" autocomplete="one-time-code">
                     </div>
                 </div>
 
@@ -69,7 +69,7 @@
                 </div>
                 <div class="auth-bottom auth-row">
                     <div class="tgauth">
-                        {if $config['enable_telegram'] == 'true'}
+                        {if $config['enable_telegram'] === true}
                             <span>Telegram</span>
                             <button class="btn" id="calltgauth"><i class="icon icon-lg">near_me</i></button>
                             <span>快捷登录</span>

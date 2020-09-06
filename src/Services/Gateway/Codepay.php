@@ -9,9 +9,7 @@
 namespace App\Services\Gateway;
 
 use App\Services\Auth;
-use App\Services\Config;
 use App\Models\Paylist;
-
 
 class Codepay extends AbstractPayment
 {
@@ -45,8 +43,8 @@ class Codepay extends AbstractPayment
 
     public function purchase($request, $response, $args)
     {
-        $codepay_id = Config::get('codepay_id');//这里改成码支付ID
-        $codepay_key = Config::get('codepay_key'); //这是您的通讯密钥
+        $codepay_id = $_ENV['codepay_id'];//这里改成码支付ID
+        $codepay_key = $_ENV['codepay_key']; //这是您的通讯密钥
         $user = Auth::getUser();
         $price = $request->getParam('price');
         $type = $request->getParam('type');
@@ -65,7 +63,7 @@ class Codepay extends AbstractPayment
             'type' => $type,//1支付宝支付 2QQ钱包 3微信支付
             'price' => $price,//金额100元
             'param' => '',//自定义参数
-            'notify_url' => $url . '/payment/notify',//通知地址
+            'notify_url' => $_ENV['baseUrl'] . '/payment/notify',//通知地址
             'return_url' => $url . '/user/code',//跳转地址
         ); //构造需要传递的参数
 
@@ -98,7 +96,7 @@ class Codepay extends AbstractPayment
         //以下五行无需更改
         ksort($_POST); //排序post参数
         reset($_POST); //内部指针指向数组中的第一个元素
-        $codepay_key = Config::get('codepay_key'); //这是您的密钥
+        $codepay_key = $_ENV['codepay_key']; //这是您的密钥
         $sign = '';//初始化
         foreach ($_POST as $key => $val) { //遍历POST参数
             if ($val == '' || $key == 'sign') {

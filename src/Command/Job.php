@@ -2,139 +2,73 @@
 
 namespace App\Command;
 
+use App\Models\Ip;
 use App\Models\Node;
 use App\Models\User;
-use App\Models\RadiusBan;
-use App\Models\LoginIp;
-use App\Models\Speedtest;
 use App\Models\Shop;
+use App\Models\Token;
 use App\Models\Bought;
-use App\Models\Ip;
+use App\Models\BlockIp;
+use App\Models\LoginIp;
+use App\Models\DetectLog;
+use App\Models\UnblockIp;
+use App\Models\Speedtest;
+use App\Models\RadiusBan;
+use App\Models\TrafficLog;
+use App\Models\Disconnect;
+use App\Models\EmailVerify;
+use App\Models\DetectBanLog;
 use App\Models\NodeInfoLog;
 use App\Models\NodeOnlineLog;
-use App\Models\TrafficLog;
-use App\Models\DetectLog;
-use App\Models\BlockIp;
+use App\Models\TelegramTasks;
 use App\Models\TelegramSession;
-use App\Models\EmailVerify;
+use App\Models\UserSubscribeLog;
 use App\Services\Config;
-use App\Utils\Radius;
-use App\Utils\Tools;
-use App\Services\Mail;
-use App\Utils\QQWry;
 use App\Utils\GA;
+use App\Utils\QQWry;
+use App\Utils\Telegram\TelegramTools;
+use App\Utils\Tools;
+use App\Utils\Radius;
 use App\Utils\Telegram;
+use App\Utils\DatatablesHelper;
 use ArrayObject;
-use App\Models\Disconnect;
-use App\Models\UnblockIp;
-use Exception;
-use RuntimeException;
+use Ramsey\Uuid\Uuid;
 
-class Job
+class Job extends Command
 {
-    public static function syncnode()
-    {
-        $nodes = Node::all();
-        foreach ($nodes as $node) {
-            if (in_array($node->sort, array(0, 1, 10, 11, 12, 13))) {
-                $server_list = explode(';', $node->server);
-                if (!Tools::is_ip($server_list[0]) && $node->changeNodeIp($server_list[0])) {
-                    $node->save();
-                }
-                if (in_array($node->sort, array(0, 10, 12))) {
-                    Tools::updateRelayRuleIp($node);
-                }
-            }
-        }
-    }
+    public $description = ''
+    . '├─=: php xcat Job [选项]' . PHP_EOL
+    . '│ ├─ UserGa                  - 二次验证' . PHP_EOL
+    . '│ ├─ DailyJob                - 每日任务' . PHP_EOL
+    . '│ ├─ CheckJob                - 检查任务，每分钟' . PHP_EOL
+    . '│ ├─ updatedownload          - 检查客户端更新' . PHP_EOL;
 
-    public static function backup($full = false)
+    public function boot()
     {
-        ini_set('memory_limit', '-1');
-        $to = Config::get('auto_backup_email');
-        if ($to == null) {
-            return false;
-        }
-        if (!mkdir('/tmp/ssmodbackup/') && !is_dir('/tmp/ssmodbackup/')) {
-            throw new RuntimeException(sprintf('Directory "%s" was not created', '/tmp/ssmodbackup/'));
-        }
-        $db_address_array = explode(':', Config::get('db_host'));
-        if ($full) {
-            system('mysqldump --user=' . Config::get('db_username') . ' --password=' . Config::get('db_password') . ' --host=' . $db_address_array[0] . ' ' . (isset($db_address_array[1]) ? '-P ' . $db_address_array[1] : '') . ' ' . Config::get('db_database') . ' > /tmp/ssmodbackup/mod.sql');
+        if (count($this->argv) === 2) {
+            echo $this->description;
         } else {
-            system(
-                'mysqldump --user=' . Config::get('db_username') . ' --password=' . Config::get('db_password') . ' --host=' . $db_address_array[0] . ' ' . (isset($db_address_array[1]) ? '-P ' . $db_address_array[1] : '') . ' ' . Config::get('db_database') . ' announcement auto blockip bought code coupon disconnect_ip link login_ip payback radius_ban shop speedtest ss_invite_code ss_node ss_password_reset ticket unblockip user user_token email_verify detect_list relay paylist> /tmp/ssmodbackup/mod.sql',
-                $ret
-            );
-            system(
-                'mysqldump --opt --user=' . Config::get('db_username') . ' --password=' . Config::get('db_password') . ' --host=' . $db_address_array[0] . ' ' . (isset($db_address_array[1]) ? '-P ' . $db_address_array[1] : '') . ' -d ' . Config::get('db_database') . ' alive_ip ss_node_info ss_node_online_log user_traffic_log detect_log telegram_session >> /tmp/ssmodbackup/mod.sql',
-                $ret
-            );
-            if (Config::get('enable_radius') == true) {
-                $db_address_array = explode(':', Config::get('radius_db_host'));
-                system(
-                    'mysqldump --user=' . Config::get('radius_db_user') . ' --password=' . Config::get('radius_db_password') . ' --host=' . $db_address_array[0] . ' ' . (isset($db_address_array[1]) ? '-P ' . $db_address_array[1] : '') . '' . Config::get('radius_db_database') . '> /tmp/ssmodbackup/radius.sql',
-                    $ret
-                );
-            }
-        }
-
-        system('cp ' . BASE_PATH . '/config/.config.php /tmp/ssmodbackup/configbak.php', $ret);
-        echo $ret;
-        system('zip -r /tmp/ssmodbackup.zip /tmp/ssmodbackup/* -P ' . Config::get('auto_backup_passwd'), $ret);
-        $subject = Config::get('appName') . '-备份成功';
-        $text = '您好，系统已经为您自动备份，请查看附件，用您设定的密码解压。';
-        try {
-            Mail::send($to, $subject, 'news/backup.tpl', [
-                'text' => $text
-            ], [
-                '/tmp/ssmodbackup.zip'
-            ]);
-        } catch (Exception $e) {
-            echo $e->getMessage();
-        }
-        system('rm -rf /tmp/ssmodbackup', $ret);
-        system('rm /tmp/ssmodbackup.zip', $ret);
-
-        if (Config::get('backup_notify') == true) {
-            Telegram::Send('备份完毕了喵~今天又是安全祥和的一天呢。');
-        }
-    }
-
-    public static function UserGa()
-    {
-        $users = User::all();
-        foreach ($users as $user) {
-            $ga = new GA();
-            $secret = $ga->createSecret();
-
-            $user->ga_token = $secret;
-            $user->save();
-        }
-        echo 'ok';
-    }
-
-    public static function syncnasnode()
-    {
-        $nodes = Node::all();
-        foreach ($nodes as $node) {
-            $rule = preg_match("/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/", $node->server);
-            if (!$rule && (!$node->sort || $node->sort == 10 || $node->sort == 12 || $node->sort == 13)) {
-                $ip = gethostbyname($node->server);
-                $node->node_ip = $ip;
-                $node->save();
-
-                Radius::AddNas($node->node_ip, $node->server);
+            $methodName = $this->argv[2];
+            if (method_exists($this, $methodName)) {
+                $this->$methodName();
+            } else {
+                echo '方法不存在.' . PHP_EOL;
             }
         }
     }
 
-    public static function DailyJob()
+    /**
+     * 每日任务
+     *
+     * @return void
+     */
+    public function DailyJob()
     {
         ini_set('memory_limit', '-1');
         $nodes = Node::all();
         foreach ($nodes as $node) {
-            if ($node->sort == 0 || $node->sort == 10 || $node->sort == 11 || $node->sort == 12 || $node->sort == 13) {
+            $nodeSort = [1, 2, 5, 9, 999];     // 无需重置流量的节点类型
+            if (!in_array($node->sort, $nodeSort)) {
                 if (date('d') == $node->bandwidthlimit_resetday) {
                     $node->node_bandwidth = 0;
                     $node->save();
@@ -142,6 +76,14 @@ class Job
             }
         }
 
+        // 清理订阅记录
+        UserSubscribeLog::where(
+            'request_time',
+            '<',
+            date('Y-m-d H:i:s', time() - 86400 * (int)$_ENV['subscribeLog_keep_days'])
+        )->delete();
+
+        Token::where('expire_time', '<', time())->delete();
         NodeInfoLog::where('log_time', '<', time() - 86400 * 3)->delete();
         NodeOnlineLog::where('log_time', '<', time() - 86400 * 3)->delete();
         TrafficLog::where('log_time', '<', time() - 86400 * 3)->delete();
@@ -149,11 +91,20 @@ class Job
         Speedtest::where('datetime', '<', time() - 86400 * 3)->delete();
         EmailVerify::where('expire_in', '<', time() - 86400 * 3)->delete();
         system('rm ' . BASE_PATH . '/storage/*.png', $ret);
-        Telegram::Send('姐姐姐姐，数据库被清理了，感觉身体被掏空了呢~');
+        
+        $db = new DatatablesHelper();
+        
+        Tools::reset_auto_increment($db, 'user_traffic_log');
+        Tools::reset_auto_increment($db, 'ss_node_online_log');
+        Tools::reset_auto_increment($db, 'ss_node_info');
+
+        if (Config::getconfig('Telegram.bool.DailyJob')) {
+            Telegram::Send(Config::getconfig('Telegram.string.DailyJob'));
+        }
 
         //auto reset
         $boughts = Bought::all();
-        $boughted_users = array();
+        $bought_users = array();
         foreach ($boughts as $bought) {
             $user = User::where('id', $bought->userid)->first();
 
@@ -170,27 +121,24 @@ class Job
             }
 
             if ($shop->reset() != 0 && $shop->reset_value() != 0 && $shop->reset_exp() != 0) {
-                $boughted_users[] = $bought->userid;
-                if ((time() - $shop->reset_exp() * 86400 < $bought->datetime) && (int)((time() - $bought->datetime) / 86400) % $shop->reset() == 0 && (int)((time() - $bought->datetime) / 86400) != 0) {
+                $bought_users[] = $bought->userid;
+                if ((time() - $shop->reset_exp() * 86400 < $bought->datetime) && (int)((time(
+                            ) - $bought->datetime) / 86400) % $shop->reset() == 0 && (int)((time(
+                            ) - $bought->datetime) / 86400) != 0) {
                     echo('流量重置-' . $user->id . "\n");
                     $user->transfer_enable = Tools::toGB($shop->reset_value());
                     $user->u = 0;
                     $user->d = 0;
                     $user->last_day_t = 0;
                     $user->save();
-
-                    $subject = Config::get('appName') . '-您的流量被重置了';
-                    $to = $user->email;
-                    $text = '您好，根据您所订购的订单 ID:' . $bought->id . '，流量已经被重置为' . $shop->reset_value() . 'GB';
-                    try {
-                        Mail::send($to, $subject, 'news/warn.tpl', [
-                            'user' => $user,
-                            'text' => $text
-                        ], [
-                        ]);
-                    } catch (Exception $e) {
-                        echo $e->getMessage();
-                    }
+                    $user->sendMail(
+                        $_ENV['appName'] . '-您的流量被重置了',
+                        'news/warn.tpl',
+                        [
+                            'text' => '您好，根据您所订购的订单 ID:' . $bought->id . '，流量已经被重置为' . $shop->reset_value() . 'GB'
+                        ],
+                        []
+                    );
                 }
             }
         }
@@ -200,7 +148,7 @@ class Job
         foreach ($users as $user) {
             $user->last_day_t = ($user->u + $user->d);
             $user->save();
-            if (in_array($user->id, $boughted_users)) {
+            if (in_array($user->id, $bought_users)) {
                 continue;
             }
             if (date('d') == $user->auto_reset_day) {
@@ -209,23 +157,16 @@ class Job
                 $user->last_day_t = 0;
                 $user->transfer_enable = $user->auto_reset_bandwidth * 1024 * 1024 * 1024;
                 $user->save();
-
-                $subject = Config::get('appName') . '-您的流量被重置了';
-                $to = $user->email;
-                $text = '您好，根据管理员的设置，流量已经被重置为' . $user->auto_reset_bandwidth . 'GB';
-                try {
-                    Mail::send($to, $subject, 'news/warn.tpl', [
-                        'user' => $user,
-                        'text' => $text
-                    ], [
-                    ]);
-                } catch (Exception $e) {
-                    echo $e->getMessage();
-                }
+                $user->sendMail(
+                    $_ENV['appName'] . '-您的流量被重置了',
+                    'news/warn.tpl',
+                    [
+                        'text' => '您好，根据管理员的设置，流量已经被重置为' . $user->auto_reset_bandwidth . 'GB'
+                    ],
+                    []
+                );
             }
         }
-
-        $adminUser = User::where('is_admin', '=', '1')->get();
 
         $qqwry = file_get_contents('https://qqwry.mirror.noc.one/QQWry.Dat?from=sspanel_uim');
         if ($qqwry != '') {
@@ -240,22 +181,20 @@ class Job
         $iplocation = new QQWry();
         $location = $iplocation->getlocation('8.8.8.8');
         $Userlocation = $location['country'];
-        if (iconv('gbk', 'utf-8//IGNORE', $Userlocation) != '美国') {
+        if (iconv('gbk', 'utf-8//IGNORE', $Userlocation) !== '美国') {
             unlink(BASE_PATH . '/storage/qqwry.dat');
             rename(BASE_PATH . '/storage/qqwry.dat.bak', BASE_PATH . '/storage/qqwry.dat');
         }
 
-        self::updatedownload();
+        $this->updatedownload();
     }
 
-    //   定时任务开启的情况下，每天自动检测有没有最新版的后端，github源来自Miku
-    public static function updatedownload()
-    {
-        system('cd ' . BASE_PATH . '/public/ssr-download/ && git pull https://github.com/xcxnig/ssr-download.git && git gc');
-    }
-
-
-    public static function CheckJob()
+    /**
+     * 检查任务，每分钟
+     *
+     * @return void
+     */
+    public function CheckJob()
     {
         //在线人数检测
         $users = User::where('node_connector', '>', 0)->get();
@@ -358,18 +297,14 @@ class Job
             $shop = Shop::where('id', $bought->shopid)->first();
             if ($shop == null) {
                 $bought->delete();
-                $subject = Config::get('appName') . '-续费失败';
-                $to = $user->email;
-                $text = '您好，系统为您自动续费商品时，发现该商品已被下架，为能继续正常使用，建议您登录用户面板购买新的商品。';
-                try {
-                    Mail::send($to, $subject, 'news/warn.tpl', [
-                        'user' => $user,
-                        'text' => $text
-                    ], [
-                    ]);
-                } catch (Exception $e) {
-                    echo $e->getMessage();
-                }
+                $user->sendMail(
+                    $_ENV['appName'] . '-续费失败',
+                    'news/warn.tpl',
+                    [
+                        'text' => '您好，系统为您自动续费商品时，发现该商品已被下架，为能继续正常使用，建议您登录用户面板购买新的商品。'
+                    ],
+                    []
+                );
                 $bought->is_notified = true;
                 $bought->save();
                 continue;
@@ -390,31 +325,26 @@ class Job
                 $bought_new->coupon = '';
                 $bought_new->save();
 
-                $subject = Config::get('appName') . '-续费成功';
-                $to = $user->email;
-                $text = '您好，系统已经为您自动续费，商品名：' . $shop->name . ',金额:' . $shop->price . ' 元。';
-                try {
-                    Mail::send($to, $subject, 'news/warn.tpl', [
-                        'user' => $user,
-                        'text' => $text
-                    ]);
-                } catch (Exception $e) {
-                    echo $e->getMessage();
-                }
+                $user->sendMail(
+                    $_ENV['appName'] . '-续费成功',
+                    'news/warn.tpl',
+                    [
+                        'text' => '您好，系统已经为您自动续费，商品名：' . $shop->name . ',金额:' . $shop->price . ' 元。'
+                    ],
+                    []
+                );
+
                 $bought->is_notified = true;
                 $bought->save();
             } elseif ($bought->is_notified == false) {
-                $subject = Config::get('appName') . '-续费失败';
-                $to = $user->email;
-                $text = '您好，系统为您自动续费商品名：' . $shop->name . ',金额:' . $shop->price . ' 元 时，发现您余额不足，请及时充值。充值后请稍等系统便会自动为您续费。';
-                try {
-                    Mail::send($to, $subject, 'news/warn.tpl', [
-                        'user' => $user,
-                        'text' => $text
-                    ]);
-                } catch (Exception $e) {
-                    echo $e->getMessage();
-                }
+                $user->sendMail(
+                    $_ENV['appName'] . '-续费失败',
+                    'news/warn.tpl',
+                    [
+                        'text' => '您好，系统为您自动续费商品名：' . $shop->name . ',金额:' . $shop->price . ' 元 时，发现您余额不足，请及时充值。充值后请稍等系统便会自动为您续费。'
+                    ],
+                    []
+                );
                 $bought->is_notified = true;
                 $bought->save();
             }
@@ -428,17 +358,17 @@ class Job
         $adminUser = User::where('is_admin', '=', '1')->get();
 
         //节点掉线检测
-        if (Config::get('enable_detect_offline') == true) {
+        if ($_ENV['enable_detect_offline'] == true) {
+            echo '节点掉线检测开始' . PHP_EOL;
             $nodes = Node::all();
-
             foreach ($nodes as $node) {
                 if ($node->isNodeOnline() === false && $node->online == true) {
-                    if (Config::get('useScFtqq') == true && Config::get('enable_detect_offline_useScFtqq') == true) {
-                        $ScFtqq_SCKEY = Config::get('ScFtqq_SCKEY');
+                    if ($_ENV['useScFtqq'] == true && $_ENV['enable_detect_offline_useScFtqq'] == true) {
+                        $ScFtqq_SCKEY = $_ENV['ScFtqq_SCKEY'];
                         $text = '管理员您好，系统发现节点 ' . $node->name . ' 掉线了，请您及时处理。';
                         $postdata = http_build_query(
                             array(
-                                'text' => Config::get('appName') . '-节点掉线了',
+                                'text' => $_ENV['appName'] . '-节点掉线了',
                                 'desp' => $text
                             )
                         );
@@ -455,33 +385,35 @@ class Job
                     }
 
                     foreach ($adminUser as $user) {
-                        echo 'Send offline mail to user: ' . $user->id;
-                        $subject = Config::get('appName') . '-系统警告';
-                        $to = $user->email;
-                        $text = '管理员您好，系统发现节点 ' . $node->name . ' 掉线了，请您及时处理。';
-                        try {
-                            Mail::send($to, $subject, 'news/warn.tpl', [
-                                'user' => $user,
-                                'text' => $text
-                            ]);
-                        } catch (Exception $e) {
-                            echo $e->getMessage();
-                        }
-
-                        $notice_text = '喵喵喵~ ' . $node->name . ' 节点掉线了喵~';
+                        echo 'Send offline mail to user: ' . $user->id . PHP_EOL;
+                        $user->sendMail(
+                            $_ENV['appName'] . '-系统警告',
+                            'news/warn.tpl',
+                            [
+                                'text' => '管理员您好，系统发现节点 ' . $node->name . ' 掉线了，请您及时处理。'
+                            ],
+                            []
+                        );
+                        $notice_text = str_replace(
+                            '%node_name%',
+                            $node->name,
+                            Config::getconfig('Telegram.string.NodeOffline')
+                        );
                     }
 
-                    Telegram::Send($notice_text);
+                    if (Config::getconfig('Telegram.bool.NodeOffline')) {
+                        Telegram::Send($notice_text);
+                    }
 
                     $node->online = false;
                     $node->save();
                 } elseif ($node->isNodeOnline() === true && $node->online == false) {
-                    if (Config::get('useScFtqq') == true && Config::get('enable_detect_offline_useScFtqq') == true) {
-                        $ScFtqq_SCKEY = Config::get('ScFtqq_SCKEY');
+                    if ($_ENV['useScFtqq'] == true && $_ENV['enable_detect_offline_useScFtqq'] == true) {
+                        $ScFtqq_SCKEY = $_ENV['ScFtqq_SCKEY'];
                         $text = '管理员您好，系统发现节点 ' . $node->name . ' 恢复上线了。';
                         $postdata = http_build_query(
                             array(
-                                'text' => Config::get('appName') . '-节点恢复上线了',
+                                'text' => $_ENV['appName'] . '-节点恢复上线了',
                                 'desp' => $text
                             )
                         );
@@ -498,32 +430,37 @@ class Job
                         file_get_contents('https://sc.ftqq.com/' . $ScFtqq_SCKEY . '.send', false, $context);
                     }
                     foreach ($adminUser as $user) {
-                        echo 'Send offline mail to user: ' . $user->id;
-                        $subject = Config::get('appName') . '-系统提示';
-                        $to = $user->email;
-                        $text = '管理员您好，系统发现节点 ' . $node->name . ' 恢复上线了。';
-                        try {
-                            Mail::send($to, $subject, 'news/warn.tpl', [
-                                'user' => $user,
-                                'text' => $text
-                            ]);
-                        } catch (Exception $e) {
-                            echo $e->getMessage();
-                        }
-
-                        $notice_text = '喵喵喵~ ' . $node->name . ' 节点恢复了喵~';
+                        echo 'Send offline mail to user: ' . $user->id . PHP_EOL;
+                        $user->sendMail(
+                            $_ENV['appName'] . '-系统提示',
+                            'news/warn.tpl',
+                            [
+                                'text' => '管理员您好，系统发现节点 ' . $node->name . ' 恢复上线了。'
+                            ],
+                            []
+                        );
+                        $notice_text = str_replace(
+                            '%node_name%',
+                            $node->name,
+                            Config::getconfig('Telegram.string.NodeOnline')
+                        );
                     }
 
-                    Telegram::Send($notice_text);
+                    if (Config::getconfig('Telegram.bool.NodeOnline')) {
+                        Telegram::Send($notice_text);
+                    }
+
                     $node->online = true;
                     $node->save();
                 }
             }
+            echo '节点掉线检测结束' . PHP_EOL;
         }
 
 
         //登录地检测
-        if (Config::get('login_warn') == true) {
+        if ($_ENV['login_warn'] == true) {
+            echo '异常登录检测开始' . PHP_EOL;
             $iplocation = new QQWry();
             $Logs = LoginIp::where('datetime', '>', time() - 60)->get();
             foreach ($Logs as $log) {
@@ -544,39 +481,44 @@ class Job
                             if ($Userlocation != $location['country'] && $nodes == null && $nodes2 == null) {
                                 $user = User::where('id', '=', $userlog->userid)->first();
                                 echo 'Send warn mail to user: ' . $user->id . '-' . iconv(
-                                    'gbk',
-                                    'utf-8//IGNORE',
-                                    $Userlocation
-                                ) . '-' . iconv('gbk', 'utf-8//IGNORE', $location['country']);
-                                $subject = Config::get('appName') . '-系统警告';
-                                $to = $user->email;
+                                        'gbk',
+                                        'utf-8//IGNORE',
+                                        $Userlocation
+                                    ) . '-' . iconv('gbk', 'utf-8//IGNORE', $location['country']);
                                 $text = '您好，系统发现您的账号在 ' . iconv(
-                                    'gbk',
-                                    'utf-8//IGNORE',
-                                    $Userlocation
-                                ) . ' 有异常登录，请您自己自行核实登录行为。有异常请及时修改密码。';
-                                try {
-                                    Mail::send($to, $subject, 'news/warn.tpl', [
-                                        'user' => $user,
+                                        'gbk',
+                                        'utf-8//IGNORE',
+                                        $Userlocation
+                                    ) . ' 有异常登录，请您自己自行核实登录行为。有异常请及时修改密码。';
+                                $user->sendMail(
+                                    $_ENV['appName'] . '-系统警告',
+                                    'news/warn.tpl',
+                                    [
                                         'text' => $text
-                                    ], [
-                                    ]);
-                                } catch (Exception $e) {
-                                    echo $e->getMessage();
-                                }
+                                    ],
+                                    []
+                                );
                             }
                         }
                     }
                 }
             }
+            echo '异常登录检测结束' . PHP_EOL;
         }
 
         $users = User::all();
         foreach ($users as $user) {
-            if (($user->transfer_enable <= $user->u + $user->d || $user->enable == 0 || (strtotime($user->expire_in) < time() && strtotime($user->expire_in) > 644447105)) && RadiusBan::where(
-                'userid',
-                $user->id
-            )->first() == null) {
+            $user->uuid = Uuid::uuid3(
+                Uuid::NAMESPACE_DNS,
+                $user->id . '|' . $user->passwd
+            );
+            $user->save();
+            if (($user->transfer_enable <= $user->u + $user->d || $user->enable == 0 || (strtotime(
+                            $user->expire_in
+                        ) < time() && strtotime($user->expire_in) > 644447105)) && RadiusBan::where(
+                    'userid',
+                    $user->id
+                )->first() == null) {
                 $rb = new RadiusBan();
                 $rb->userid = $user->id;
                 $rb->save();
@@ -588,19 +530,14 @@ class Job
                 $user->u = 0;
                 $user->d = 0;
                 $user->last_day_t = 0;
-
-                $subject = Config::get('appName') . '-您的用户账户已经过期了';
-                $to = $user->email;
-                $text = '您好，系统发现您的账号已经过期了。';
-                try {
-                    Mail::send($to, $subject, 'news/warn.tpl', [
-                        'user' => $user,
-                        'text' => $text
-                    ], [
-                    ]);
-                } catch (Exception $e) {
-                    echo $e->getMessage();
-                }
+                $user->sendMail(
+                    $_ENV['appName'] . '-您的用户账户已经过期了',
+                    'news/warn.tpl',
+                    [
+                        'text' => '您好，系统发现您的账号已经过期了。'
+                    ],
+                    []
+                );
                 $user->expire_notified = true;
                 $user->save();
             } elseif (strtotime($user->expire_in) > time() && $user->expire_notified == true) {
@@ -610,35 +547,36 @@ class Job
 
 
             //余量不足检测
-            if (Config::get('notify_limit_mode') != false) {
+            if ($_ENV['notify_limit_mode'] != false) {
                 $user_traffic_left = $user->transfer_enable - $user->u - $user->d;
                 $under_limit = false;
 
-                if ($user->transfer_enable != 0) {
-                    if (Config::get('notify_limit_mode') == 'per' &&
-                        $user_traffic_left / $user->transfer_enable * 100 < Config::get('notify_limit_value')) {
+                if ($user->transfer_enable != 0 && $user->class !=0) {
+                    if ($_ENV['notify_limit_mode'] == 'per' &&
+                        $user_traffic_left / $user->transfer_enable * 100 < $_ENV['notify_limit_value']
+                    ) {
                         $under_limit = true;
                         $unit_text = '%';
                     }
-                } elseif (Config::get('notify_limit_mode') == 'mb' &&
-                    Tools::flowToMB($user_traffic_left) < Config::get('notify_limit_value')) {
+                } elseif ($_ENV['notify_limit_mode'] == 'mb' &&
+                    Tools::flowToMB($user_traffic_left) < $_ENV['notify_limit_value']
+                ) {
                     $under_limit = true;
                     $unit_text = 'MB';
                 }
 
                 if ($under_limit == true && $user->traffic_notified == false) {
-                    $subject = Config::get('appName') . ' - 您的剩余流量过低';
-                    $to = $user->email;
-                    $text = '您好，系统发现您剩余流量已经低于 ' . Config::get('notify_limit_value') . $unit_text . ' 。';
-                    try {
-                        Mail::send($to, $subject, 'news/warn.tpl', [
-                            'user' => $user,
-                            'text' => $text
-                        ]);
+                    $result = $user->sendMail(
+                        $_ENV['appName'] . '-您的剩余流量过低',
+                        'news/warn.tpl',
+                        [
+                            'text' => '您好，系统发现您剩余流量已经低于 ' . $_ENV['notify_limit_value'] . $unit_text . ' 。'
+                        ],
+                        []
+                    );
+                    if ($result) {
                         $user->traffic_notified = true;
                         $user->save();
-                    } catch (Exception $e) {
-                        echo $e->getMessage();
                     }
                 } elseif ($under_limit == false && $user->traffic_notified == true) {
                     $user->traffic_notified = false;
@@ -646,70 +584,55 @@ class Job
                 }
             }
 
-            if (Config::get('account_expire_delete_days') >= 0 &&
-                strtotime($user->expire_in) + Config::get('account_expire_delete_days') * 86400 < time() &&
-                $user->money <= Config::get('auto_clean_min_money')
-
+            if ($_ENV['account_expire_delete_days'] >= 0 &&
+                strtotime($user->expire_in) + $_ENV['account_expire_delete_days'] * 86400 < time() &&
+                $user->money <= $_ENV['auto_clean_min_money']
             ) {
-                $subject = Config::get('appName') . '-您的用户账户已经被删除了';
-                $to = $user->email;
-                $text = '您好，系统发现您的账户已经过期 ' . Config::get('account_expire_delete_days') . ' 天了，帐号已经被删除。';
-                try {
-                    Mail::send($to, $subject, 'news/warn.tpl', [
-                        'user' => $user,
-                        'text' => $text
-                    ], [
-                    ]);
-                } catch (Exception $e) {
-                    echo $e->getMessage();
-                }
-
+                $user->sendMail(
+                    $_ENV['appName'] . '-您的用户账户已经被删除了',
+                    'news/warn.tpl',
+                    [
+                        'text' => '您好，系统发现您的账户已经过期 ' . $_ENV['account_expire_delete_days'] . ' 天了，帐号已经被删除。'
+                    ],
+                    []
+                );
                 $user->kill_user();
                 continue;
             }
 
-
-            if (Config::get('auto_clean_uncheck_days') > 0 &&
+            if ($_ENV['auto_clean_uncheck_days'] > 0 &&
                 max(
                     $user->last_check_in_time,
                     strtotime($user->reg_date)
-                ) + (Config::get('auto_clean_uncheck_days') * 86400) < time() &&
+                ) + ($_ENV['auto_clean_uncheck_days'] * 86400) < time() &&
                 $user->class == 0 &&
-                $user->money <= Config::get('auto_clean_min_money')
+                $user->money <= $_ENV['auto_clean_min_money']
             ) {
-                $subject = Config::get('appName') . '-您的用户账户已经被删除了';
-                $to = $user->email;
-                $text = '您好，系统发现您的账号已经 ' . Config::get('auto_clean_uncheck_days') . ' 天没签到了，帐号已经被删除。';
-                try {
-                    Mail::send($to, $subject, 'news/warn.tpl', [
-                        'user' => $user,
-                        'text' => $text
-                    ], [
-                    ]);
-                } catch (Exception $e) {
-                    echo $e->getMessage();
-                }
+                $user->sendMail(
+                    $_ENV['appName'] . '-您的用户账户已经被删除了',
+                    'news/warn.tpl',
+                    [
+                        'text' => '您好，系统发现您的账号已经 ' . $_ENV['auto_clean_uncheck_days'] . ' 天没签到了，帐号已经被删除。'
+                    ],
+                    []
+                );
                 $user->kill_user();
                 continue;
             }
 
-            if (Config::get('auto_clean_unused_days') > 0 &&
-                max($user->t, strtotime($user->reg_date)) + (Config::get('auto_clean_unused_days') * 86400) < time() &&
+            if ($_ENV['auto_clean_unused_days'] > 0 &&
+                max($user->t, strtotime($user->reg_date)) + ($_ENV['auto_clean_unused_days'] * 86400) < time() &&
                 $user->class == 0 &&
-                $user->money <= Config::get('auto_clean_min_money')
+                $user->money <= $_ENV['auto_clean_min_money']
             ) {
-                $subject = Config::get('appName') . '-您的用户账户已经被删除了';
-                $to = $user->email;
-                $text = '您好，系统发现您的账号已经 ' . Config::get('auto_clean_unused_days') . ' 天没使用了，帐号已经被删除。';
-                try {
-                    Mail::send($to, $subject, 'news/warn.tpl', [
-                        'user' => $user,
-                        'text' => $text
-                    ], [
-                    ]);
-                } catch (Exception $e) {
-                    echo $e->getMessage();
-                }
+                $user->sendMail(
+                    $_ENV['appName'] . '-您的用户账户已经被删除了',
+                    'news/warn.tpl',
+                    [
+                        'text' => '您好，系统发现您的账号已经 ' . $_ENV['auto_clean_unused_days'] . ' 天没使用了，帐号已经被删除。'
+                    ],
+                    []
+                );
                 $user->kill_user();
                 continue;
             }
@@ -719,7 +642,7 @@ class Job
                 strtotime($user->class_expire) > 1420041600
             ) {
                 $text = '您好，系统发现您的账号等级已经过期了。';
-                $reset_traffic = Config::get('class_expire_reset_traffic');
+                $reset_traffic = $_ENV['class_expire_reset_traffic'];
                 if ($reset_traffic >= 0) {
                     $user->transfer_enable = Tools::toGB($reset_traffic);
                     $user->u = 0;
@@ -727,19 +650,25 @@ class Job
                     $user->last_day_t = 0;
                     $text .= '流量已经被重置为' . $reset_traffic . 'GB';
                 }
-                $subject = Config::get('appName') . '-您的账户等级已经过期了';
-                $to = $user->email;
-                try {
-                    Mail::send($to, $subject, 'news/warn.tpl', [
-                        'user' => $user,
+                $user->sendMail(
+                    $_ENV['appName'] . '-您的账户等级已经过期了',
+                    'news/warn.tpl',
+                    [
                         'text' => $text
-                    ], [
-                    ]);
-                } catch (Exception $e) {
-                    echo $e->getMessage();
-                }
-
+                    ],
+                    []
+                );
                 $user->class = 0;
+            }
+
+            // 审计封禁解封
+            if ($user->enable == 0) {
+                $logs = DetectBanLog::where('user_id', $user->id)->orderBy('id', 'desc')->first();
+                if ($logs != null) {
+                    if (($logs->end_time + $logs->ban_time * 60) <= time()) {
+                        $user->enable = 1;
+                    }
+                }
             }
 
             $user->save();
@@ -754,104 +683,90 @@ class Job
                 continue;
             }
 
-            if ($user->enable == 1 && (strtotime($user->expire_in) > time() || strtotime($user->expire_in) < 644447105) && $user->transfer_enable > $user->u + $user->d) {
+            if ($user->enable == 1 && (strtotime($user->expire_in) > time() || strtotime(
+                        $user->expire_in
+                    ) < 644447105) && $user->transfer_enable > $user->u + $user->d) {
                 $sinuser->delete();
                 Radius::Add($user, $user->passwd);
             }
         }
+
+        if ($_ENV['enable_telegram'] === true) {
+            $this->Telegram();
+        }
+
+        //更新节点 IP，每分钟
+        $nodes = Node::all();
+        $allNodeID = [];
+        foreach ($nodes as $node) {
+            $allNodeID[] = $node->id;
+            $nodeSort = [2, 5, 9, 999];     // 无需更新 IP 的节点类型
+            if (!in_array($node->sort, $nodeSort)) {
+                $server = $node->getOutServer();
+                if (!Tools::is_ip($server) && $node->changeNodeIp($server)) {
+                    $node->save();
+                }
+                if (in_array($node->sort, array(0, 10, 12))) {
+                    Tools::updateRelayRuleIp($node);
+                }
+            }
+        }
+
+        // 删除无效的中转
+        $allNodeID = implode(', ', $allNodeID);
+        $datatables = new DatatablesHelper();
+        $datatables->query(
+            'DELETE FROM `relay` WHERE `source_node_id` NOT IN(' . $allNodeID . ') OR `dist_node_id` NOT IN(' . $allNodeID . ')'
+        );
     }
 
-    public static function detectGFW()
+    /**
+     * Telegram 任务
+     */
+    public function Telegram(): void
     {
-        //节点被墙检测
-        $last_time = file_get_contents(BASE_PATH . '/storage/last_detect_gfw_time');
-        for ($count = 1; $count <= 12; $count++) {
-            if (time() - $last_time >= Config::get('detect_gfw_interval')) {
-                $file_interval = fopen(BASE_PATH . '/storage/last_detect_gfw_time', 'wb');
-                fwrite($file_interval, time());
-                fclose($file_interval);
-                $nodes = Node::all();
-                $adminUser = User::where('is_admin', '=', '1')->get();
-                foreach ($nodes as $node) {
-                    if ($node->node_ip == '' ||
-                        $node->node_ip == null ||
-                        $node->online == false) {
-                        continue;
-                    }
-                    $api_url = Config::get('detect_gfw_url');
-                    $api_url = str_replace(
-                        array('{ip}', '{port}'),
-                        array($node->node_ip, Config::get('detect_gfw_port')),
-                        $api_url
-                    );
-                    //因为考虑到有v2ray之类的节点，所以不得不使用ip作为参数
-                    $result_tcping = false;
-                    $detect_time = Config::get('detect_gfw_count');
-                    for ($i = 1; $i <= $detect_time; $i++) {
-                        $json_tcping = json_decode(file_get_contents($api_url), true);
-                        if (eval('return ' . Config::get('detect_gfw_judge') . ';')) {
-                            $result_tcping = true;
-                            break;
-                        }
-                    }
-                    if ($result_tcping == false) {
-                        //被墙了
-                        echo($node->id . ':false' . PHP_EOL);
-                        //判断有没有发送过邮件
-                        if ($node->gfw_block == true) {
-                            continue;
-                        }
-                        foreach ($adminUser as $user) {
-                            echo 'Send gfw mail to user: ' . $user->id . '-';
-                            $subject = Config::get('appName') . '-系统警告';
-                            $to = $user->email;
-                            $text = '管理员您好，系统发现节点 ' . $node->name . ' 被墙了，请您及时处理。';
-                            try {
-                                Mail::send($to, $subject, 'news/warn.tpl', [
-                                    'user' => $user,
-                                    'text' => $text
-                                ], [
-                                ]);
-                            } catch (Exception $e) {
-                                echo $e->getMessage();
-                            }
-                            $notice_text = '喵喵喵~ ' . $node->name . ' 节点被墙了喵~';
-                        }
-                        Telegram::Send($notice_text);
-                        $node->gfw_block = true;
-                        $node->save();
-                    } else {
-                        //没有被墙
-                        echo($node->id . ':true' . PHP_EOL);
-                        if ($node->gfw_block == false) {
-                            continue;
-                        }
-                        foreach ($adminUser as $user) {
-                            echo 'Send gfw mail to user: ' . $user->id . '-';
-                            $subject = Config::get('appName') . '-系统提示';
-                            $to = $user->email;
-                            $text = '管理员您好，系统发现节点 ' . $node->name . ' 溜出墙了。';
-                            try {
-                                Mail::send($to, $subject, 'news/warn.tpl', [
-                                    'user' => $user,
-                                    'text' => $text
-                                ], [
-                                ]);
-                            } catch (Exception $e) {
-                                echo $e->getMessage();
-                            }
-                            $notice_text = '喵喵喵~ ' . $node->name . ' 节点恢复了喵~';
-                        }
-                        Telegram::Send($notice_text);
-                        $node->gfw_block = false;
-                        $node->save();
-                    }
-                }
-                break;
-            }
-
-            echo($node->id . 'interval skip' . PHP_EOL);
-            sleep(3);
+        # 删除 tg 消息
+        $TelegramTasks = TelegramTasks::where('type', 1)->where('executetime', '<', time())->get();
+        foreach ($TelegramTasks as $Task) {
+            TelegramTools::SendPost(
+                'deleteMessage',
+                ['chat_id' => $Task->chatid, 'message_id' => $Task->messageid]
+            );
+            TelegramTasks::where('chatid', $Task->chatid)->where('type', '<>', 1)->where(
+                'messageid',
+                $Task->messageid
+            )->delete();
+            $Task->delete();
         }
+    }
+
+    /**
+     * 定时任务开启的情况下，每天自动检测有没有最新版的后端，github源来自Miku
+     *
+     * @return void
+     */
+    public function updatedownload()
+    {
+        system(
+            'cd ' . BASE_PATH . '/public/ssr-download/ && git pull https://github.com/xcxnig/ssr-download.git --rebase && git gc'
+        );
+    }
+
+    /**
+     * 二次验证
+     *
+     * @return void
+     */
+    public function UserGa()
+    {
+        $users = User::all();
+        foreach ($users as $user) {
+            $ga = new GA();
+            $secret = $ga->createSecret();
+
+            $user->ga_token = $secret;
+            $user->save();
+        }
+        echo 'ok';
     }
 }

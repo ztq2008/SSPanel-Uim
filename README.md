@@ -12,7 +12,7 @@
 [![Telegram Channel](https://img.shields.io/badge/news-t.me%2Fsspanel_uim-0d86d7?style=flat-square)](https://t.me/sspanel_uim)
 [![Telegram Chat](https://img.shields.io/badge/chat-t.me%2Fssunion-0d86d7?style=flat-square)](https://t.me/ssunion)
 
-[演示站点](https://sspanel.host) | [使用文档](https://wiki.sspanel.host) | [更新日志](https://github.com/Anankke/SSPanel-Uim/releases) | [Telegram 频道](https://t.me/sspanel_uim) | [Telegram 水群](https://t.me/ssunion)
+[演示站点](https://sspanel.host) | [使用文档](https://wiki.sspanel.host) | [更新日志](https://github.com/Anankke/SSPanel-Uim/releases) | [配套SS/SSR后端](https://github.com/Anankke/shadowsocks-mod) | [Telegram 频道](https://t.me/sspanel_uim) | [Telegram 水群](https://t.me/ssunion) | [API 文档](https://sspanel-uim.github.io/API-documents/)
 
 ## 简介
 
@@ -72,7 +72,7 @@ SSPanel UIM 使用 MIT License 开源、不提供任何担保。使用 SSPanel U
 
 ## 鸣谢
 
-### [HKServerSolution](https://www.hkserversolution.com/aff.php?aff=53)
+### [HKServerSolution](https://www.hkserversolution.net/aff.php?aff=5)
 
 Demo 演示站由 HKServerSolution 高性能服务器赞助。
 
@@ -162,7 +162,6 @@ SSPanel UIM 离不开所有 [贡献代码](https://github.com/Anankke/SSPanel-Ui
 
 #### galaxychuck
 
-- [hkserversolution-推荐UIM面板服务器放置](https://www.hkserversolution.com/aff.php?aff=60)
 - [moecloud-美國VPS](https://lite.moe/aff.php?aff=56)
 
 #### laurieryayoi

@@ -1,4 +1,4 @@
-{if $config['enable_telegram'] == 'true'}
+{if $config['enable_telegram'] === true}
     <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@gh-pages/qrcode.min.js"></script>
     <script>
         var telegram_qrcode = 'mod://login/{$login_token}';
@@ -7,10 +7,16 @@
         qrcode.makeCode(telegram_qrcode);
     </script>
     <script>
+        var flag = false;
         $(document).ready(function () {
             $("#calltgauth").click(
                     function () {
-                        f();
+                        if(flag == false){
+                            f();
+                            flag = true;
+                        }else{
+                            return 0;
+                        }
                     }
             );
 
@@ -74,7 +80,7 @@
     </script>
 {/if}
 
-{if $config['enable_telegram'] == 'true'}
+{if $config['enable_telegram'] === true}
     <script>
         $(document).ready(function () {
             var el = document.createElement('script');
